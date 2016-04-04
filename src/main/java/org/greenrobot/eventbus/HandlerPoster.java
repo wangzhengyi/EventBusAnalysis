@@ -12,6 +12,7 @@ public class HandlerPoster extends Handler {
     private final PendingPostQueue queue;
     private final int maxMillisInsideHandleMessage;
     private final EventBus eventBus;
+    /** 用于表示当前队列中是否有正在发送的任务. */
     private boolean handlerActive;
 
     HandlerPoster(EventBus eventBus, Looper looper, int maxMillisInsideHandleMessage) {
@@ -21,14 +22,20 @@ public class HandlerPoster extends Handler {
         queue = new PendingPostQueue();
     }
 
+    /**
+     * 将订阅者和订阅者事件组成PendingPost并入队列.
+     * @param subscription 订阅者
+     * @param event 订阅者事件
+     */
     void enqueue(Subscription subscription, Object event) {
         PendingPost pendingPost = PendingPost.obtainPendingPost(subscription, event);
         synchronized (this) {
             queue.enqueue(pendingPost);
             if (!handlerActive) {
+                // 如果现在队列中没有发送的消息,则发送一条空消息
                 handlerActive = true;
                 if (!sendMessage(obtainMessage())) {
-                    Log.e("EventBus", "Could not send handler message");
+                    throw new EventBusException("Could not send handler message");
                 }
             }
         }
@@ -50,11 +57,12 @@ public class HandlerPoster extends Handler {
                         }
                     }
                 }
+                // 如果订阅者没有取消订阅,则分发消息
                 eventBus.invokeSubscriber(pendingPost);
                 long timeInMethod = SystemClock.uptimeMillis() - started;
                 if (timeInMethod >= maxMillisInsideHandleMessage) {
                     if (!sendMessage(obtainMessage())) {
-                        Log.e("EventBus", "Could not send handler message");
+                        throw new EventBusException("Could not send handler message");
                     }
                     rescheduled = true;
                     return;
