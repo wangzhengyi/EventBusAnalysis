@@ -63,6 +63,16 @@ class SubscriberMethodFinder {
         return subscriberMethods;
     }
 
+    private List<SubscriberMethod> findUsingReflection(Class<?> subscriberClass) {
+        FindState findState = prepareFindState();
+        findState.initForSubscriber(subscriberClass);
+        while (findState.clazz != null) {
+            findUsingReflectionInSingleClass(findState);
+            findState.moveToSuperclass();
+        }
+        return getMethodsAndRelease(findState);
+    }
+
     private List<SubscriberMethod> findUsingInfo(Class<?> subscriberClass) {
         FindState findState = prepareFindState();
         findState.initForSubscriber(subscriberClass);
@@ -81,6 +91,20 @@ class SubscriberMethodFinder {
             findState.moveToSuperclass();
         }
         return getMethodsAndRelease(findState);
+    }
+
+    private List<SubscriberMethod> getMethodsAndRelease(FindState findState) {
+        List<SubscriberMethod> subscriberMethods = new ArrayList<>(findState.subscriberMethods);
+        findState.recycle();
+        synchronized (FIND_STATE_POOL) {
+            for (int i = 0; i < POOL_SIZE; i ++) {
+                if (FIND_STATE_POOL[i] == null) {
+                    FIND_STATE_POOL[i] = findState;
+                    break;
+                }
+            }
+        }
+        return subscriberMethods;
     }
 
     private void findUsingReflectionInSingleClass(FindState findState) {

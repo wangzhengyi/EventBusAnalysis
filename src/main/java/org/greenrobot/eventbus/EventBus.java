@@ -1,10 +1,12 @@
 package org.greenrobot.eventbus;
 
+import android.os.Looper;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 
@@ -21,7 +23,8 @@ public class EventBus {
     private final Map<Object, List<Class<?>>> typesBySubscriber;
     private final Map<Class<?>, Object> stickyEvents;
 
-    private final ThreadLocal<PostingThreadState> currentPostingThreadState = new ThreadLocal<>() {
+    private final ThreadLocal<PostingThreadState> currentPostingThreadState =
+            new ThreadLocal<PostingThreadState>() {
         @Override
         protected PostingThreadState initialValue() {
             return new PostingThreadState();
@@ -61,7 +64,23 @@ public class EventBus {
     }
 
     EventBus(EventBusBuilder builder) {
-
+        subscriptionsByEventType = new HashMap<>();
+        typesBySubscriber = new HashMap<>();
+        stickyEvents = new ConcurrentHashMap<>();
+        mainThreadPoster = new HandlerPoster(this, Looper.myLooper(), 10);
+        backgroundPoster = new BackgroundPoster(this);
+        asyncPoster = new AsyncPoster(this);
+        indexCount = builder.subscriberInfoIndexes != null ?
+                builder.subscriberInfoIndexes.size() : 0;
+        subscriberMethodFinder = new SubscriberMethodFinder(builder.subscriberInfoIndexes,
+                builder.strictMethodVerification, builder.ignoreGeneratedIndex);
+        logSubscriberExceptions = builder.logSubscriberExceptions;
+        logNoSubscriberMessages = builder.logNoSubscriberMessages;
+        sendSubscriberExceptionEvent = builder.sendSubscriberExceptionEvent;
+        sendNoSubscriberEvent = builder.sendNoSubscriberEvent;
+        throwSubscriberException = builder.throwSubscriberException;
+        eventInheritance = builder.eventInheritance;
+        executorService = builder.executorService;
     }
 
     ExecutorService getExecutorService() {
@@ -86,5 +105,13 @@ public class EventBus {
         Subscription subscription;
         Object event;
         boolean canceled;
+    }
+
+    /** 订阅事件. */
+    public void register(Object subscriber) {
+        Class<?> subscriberClass = subscriber.getClass();
+        // 根据订阅者类名查找当前订阅者的所有事件的响应函数.
+        List<SubscriberMethod> subscriberMethods = subscriberMethodFinder.
+                findSubscriberMethods(subscriberClass);
     }
 }

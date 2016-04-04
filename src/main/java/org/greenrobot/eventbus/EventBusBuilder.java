@@ -17,14 +17,26 @@ import java.util.concurrent.Executors;
 public class EventBusBuilder {
     private final static ExecutorService DEFAULT_EXECUTOR_SERVICE = Executors.newCachedThreadPool();
 
+    /** 是否监听异常日志. */
     boolean logSubscriberExceptions = true;
+
+    /** 如果没有订阅者,显示log信息. */
     boolean logNoSubscriberMessages = true;
+
+    /** 是否发送监听到的异常. */
     boolean sendSubscriberExceptionEvent = true;
+
+    /** 如果没有订阅者,就发布一条默认事件. */
     boolean sendNoSubscriberEvent = true;
+
+    /** 如果失败,则抛出异常. */
     boolean throwSubscriberException;
+
+    /** Event的子类是否也能响应订阅者. */
     boolean eventInheritance = true;
     boolean ignoreGeneratedIndex;
     boolean strictMethodVerification;
+
     ExecutorService executorService = DEFAULT_EXECUTOR_SERVICE;
     List<Class<?>> skipMethodVerificationForClasses;
     List<SubscriberInfoIndex> subscriberInfoIndexes;
@@ -127,7 +139,7 @@ public class EventBusBuilder {
     public EventBus installDefaultEventBus() {
         synchronized (EventBus.class) {
             if (EventBus.defaultInstance != null) {
-                Log.e("EventBus", "Default instance already exists." +
+                throw  new EventBusException("Default instance already exists." +
                         "It may be only set once before it's used the first time to " +
                         "ensure consistent behavior.");
             }
