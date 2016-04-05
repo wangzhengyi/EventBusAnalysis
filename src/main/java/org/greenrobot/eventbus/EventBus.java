@@ -2,6 +2,7 @@ package org.greenrobot.eventbus;
 
 import android.os.Looper;
 
+import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -92,7 +93,30 @@ public class EventBus {
      * @param pendingPost
      */
     void invokeSubscriber(PendingPost pendingPost) {
+        Object event = pendingPost.event;
+        Subscription subscription = pendingPost.subscription;
+        PendingPost.releasePendingPost(pendingPost);
+        if (subscription.active) {
+            invokeSubscriber(subscription, event);
+        }
+    }
 
+    void invokeSubscriber(Subscription subscription, Object event) {
+        try {
+            subscription.subscriberMethod.method.invoke(subscription.subscriber, event);
+        } catch (InvocationTargetException e) {
+            e.printStackTrace();
+        } catch (IllegalAccessException e) {
+            throw new IllegalStateException("Unexpected exception", e);
+        }
+    }
+
+    private void handleSubscriberException(Subscription subscription, Object event, Throwable cause) {
+        if (event instanceof  SubscriberExceptionEvent) {
+
+        } else {
+
+        }
     }
 
     /**
@@ -110,8 +134,65 @@ public class EventBus {
     /** 订阅事件. */
     public void register(Object subscriber) {
         Class<?> subscriberClass = subscriber.getClass();
-        // 根据订阅者类名查找当前订阅者的所有事件的响应函数.
+        // 通过反射机制获取订阅者全部的响应函数信息.
         List<SubscriberMethod> subscriberMethods = subscriberMethodFinder.
                 findSubscriberMethods(subscriberClass);
+        synchronized (this) {
+            for (SubscriberMethod subscriberMethod : subscriberMethods) {
+                subscribe(subscriber, subscriberMethod);
+            }
+        }
+    }
+
+    /**
+     * 构造两个集合.
+     * 1. 订阅事件->订阅者集合.
+     * 2. 订阅者->订阅事件集合.
+     * @param subscriber 订阅者
+     * @param subscriberMethod 订阅者中的响应函数
+     */
+    private void subscribe(Object subscriber, SubscriberMethod subscriberMethod) {
+        Class<?> eventType = subscriberMethod.eventType;
+        Subscription newSubscription = new Subscription(subscriber, subscriberMethod);
+        // 一个Event事件可能会被多个订阅者订阅,因此这里使用Map结构,存储Event事件对应的订阅者集合.
+        // 此外,一个订阅者类中可能会有多个订阅函数,有几个订阅函数这里就解析成有几个订阅者.
+        CopyOnWriteArrayList<Subscription> subscriptions = subscriptionsByEventType.get(eventType);
+        if (subscriptions == null) {
+            subscriptions = new CopyOnWriteArrayList<>();
+            subscriptionsByEventType.put(eventType, subscriptions);
+        } else {
+            if (subscriptions.contains(newSubscription)) {
+                throw new EventBusException("Subscriber " + subscriber.getClass()
+                        + " already registered to event " + eventType);
+            }
+        }
+
+        // 按照方法优先级从高到低的顺序将订阅者加入到订阅者集合中.
+        int size = subscriptions.size();
+        for (int i = 0; i <= size; i ++) {
+            if (i == size ||
+                    subscriberMethod.priority > subscriptions.get(i).subscriberMethod.priority) {
+                subscriptions.add(i, newSubscription);
+                break;
+            }
+        }
+
+        // 当前订阅者订阅了哪些事件集合.
+        List<Class<?>> subscribedEvents = typesBySubscriber.get(subscriber);
+        if (subscribedEvents == null) {
+            subscribedEvents = new ArrayList<>();
+            typesBySubscriber.put(subscriber, subscribedEvents);
+        }
+        // 将订阅事件加入到当前订阅者的订阅事件集合中.
+        subscribedEvents.add(eventType);
+
+        // TODO:单独处理sticky的method
+        if (subscriberMethod.sticky) {
+            if (eventInheritance) {
+
+            } else {
+
+            }
+        }
     }
 }

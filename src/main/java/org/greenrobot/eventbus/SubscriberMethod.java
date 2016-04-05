@@ -3,15 +3,21 @@ package org.greenrobot.eventbus;
 import java.lang.reflect.Method;
 
 /**
- * Used internally by EventBus and generated subscriber indexes.
  * 订阅者事件响应函数信息.
  */
 public class SubscriberMethod {
+    /** 响应函数的方法类型. */
     final Method method;
+
+    /** 函数运行所在的线程的线程类型. */
     final ThreadMode threadMode;
+
+    /** 订阅事件的类型,也是订阅函数第一个形参的参数类型. */
     final Class<?> eventType;
+
     final int priority;
     final boolean sticky;
+
     /** Used for efficient comparison */
     String methodString;
 

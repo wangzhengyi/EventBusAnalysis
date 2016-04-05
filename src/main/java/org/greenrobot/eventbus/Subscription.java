@@ -4,7 +4,10 @@ package org.greenrobot.eventbus;
  * 订阅者信息
  */
 final class Subscription {
+    /** 订阅者的实例化对象. */
     final Object subscriber;
+
+    /** 订阅者的订阅函数信息. */
     final SubscriberMethod subscriberMethod;
 
     volatile boolean active;

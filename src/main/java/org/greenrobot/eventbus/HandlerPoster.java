@@ -32,7 +32,7 @@ public class HandlerPoster extends Handler {
         synchronized (this) {
             queue.enqueue(pendingPost);
             if (!handlerActive) {
-                // 如果现在队列中没有发送的消息,则发送一条空消息
+                // 如果现在队列中没有正在执行的消息,则发送一条空消息,让当前handler开始轮询执行消息.
                 handlerActive = true;
                 if (!sendMessage(obtainMessage())) {
                     throw new EventBusException("Could not send handler message");

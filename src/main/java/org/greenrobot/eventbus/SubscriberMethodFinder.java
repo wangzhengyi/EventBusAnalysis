@@ -1,7 +1,5 @@
 package org.greenrobot.eventbus;
 
-import android.util.Log;
-
 import org.greenrobot.eventbus.meta.SubscriberInfo;
 import org.greenrobot.eventbus.meta.SubscriberInfoIndex;
 
@@ -14,12 +12,14 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Created by wzy on 16-4-3.
+ * 订阅者响应函数发现类.
  */
 class SubscriberMethodFinder {
+    /** 这两种是编译器添加的方法,因为需要忽略. */
     private static final int BRIDGE = 0X40;
     private static final int SYNTHETIC = 0X1000;
 
+    /** 定义需要忽略方法的修饰符. */
     private static final int MODIFIERS_IGNORE = Modifier.ABSTRACT | Modifier.STATIC
             | BRIDGE | SYNTHETIC;
 
@@ -41,6 +41,7 @@ class SubscriberMethodFinder {
     }
 
     List<SubscriberMethod> findSubscriberMethods(Class<?> subscriberClass) {
+        // 如果之前缓存过该类的响应函数,则直接从缓存中该订阅者的获取响应函数集合.
         List<SubscriberMethod> subscriberMethods = METHOD_CACHE.get(subscriberClass);
         if (subscriberMethods != null) {
             return subscriberMethods;
@@ -53,14 +54,12 @@ class SubscriberMethodFinder {
         }
 
         if (subscriberMethods.isEmpty()) {
-            Log.e("EventBus", "Subscriber" + subscriberClass + " and its super classes have no " +
+            throw new EventBusException("Subscriber" + subscriberClass + " and its super classes have no " +
                     "public methods with the @Subscribe annotation");
         } else {
             METHOD_CACHE.put(subscriberClass, subscriberMethods);
             return subscriberMethods;
         }
-
-        return subscriberMethods;
     }
 
     private List<SubscriberMethod> findUsingReflection(Class<?> subscriberClass) {
@@ -74,9 +73,11 @@ class SubscriberMethodFinder {
     }
 
     private List<SubscriberMethod> findUsingInfo(Class<?> subscriberClass) {
+        // 构造订阅者对应的FindState对象.
         FindState findState = prepareFindState();
         findState.initForSubscriber(subscriberClass);
         while (findState.clazz != null) {
+            // subscriberInfo初始为null
             findState.subscriberInfo = getSubscriberInfo(findState);
             if (findState.subscriberInfo != null) {
                 SubscriberMethod[] array = findState.subscriberInfo.getSubscriberMethods();
@@ -86,6 +87,7 @@ class SubscriberMethodFinder {
                     }
                 }
             } else {
+                // 通过反射获取响应函数集合.
                 findUsingReflectionInSingleClass(findState);
             }
             findState.moveToSuperclass();
@@ -107,9 +109,11 @@ class SubscriberMethodFinder {
         return subscriberMethods;
     }
 
+    /** 通过反射来解析订阅者类获取订阅函数信息. */
     private void findUsingReflectionInSingleClass(FindState findState) {
         Method[] methods;
         try {
+            // 获取订阅者所有声明的方法
             methods = findState.clazz.getDeclaredMethods();
         } catch (Throwable th) {
             methods = findState.clazz.getMethods();
@@ -117,14 +121,20 @@ class SubscriberMethodFinder {
         }
 
         for (Method method : methods) {
+            // 获取当前方法的语言修饰符
             int modifiers = method.getModifiers();
+            // 订阅方法必须是public而且不能在被忽略的修饰符集合中.
             if ((modifiers & Modifier.PUBLIC) != 0 && (modifiers & MODIFIERS_IGNORE) == 0) {
+                // 获取指定方法的形参类型集合
                 Class<?>[] parameterTypes = method.getParameterTypes();
+                // EventBus从3.0版本之后,订阅函数的标准改为有Subscribe注解修饰
+                // 并且只有一个参数,参数类型作为订阅事件的参数类型.
                 if (parameterTypes.length == 1) {
                     Subscribe subscribeAnnotation = method.getAnnotation(Subscribe.class);
                     if (subscribeAnnotation != null) {
                         Class<?> eventType = parameterTypes[0];
                         if (findState.checkAdd(method, eventType)) {
+                            // 订阅函数的默认所在线程的线程类型为POSTING
                             ThreadMode threadMode = subscribeAnnotation.threadMode();
                             findState.subscriberMethods.add(new SubscriberMethod(
                                     method, eventType, threadMode, subscribeAnnotation.priority(),
@@ -133,11 +143,15 @@ class SubscriberMethodFinder {
                         }
                     }
                 } else if (strictMethodVerification && method.isAnnotationPresent(Subscribe.class)) {
-                    String methodName = method.getDeclaringClass().getName() + "." + method.getName();
-                    Log.e("EventBus", "@Subscribe method" + methodName + " must have exactly 1 " +
-                            "parameter but has " + parameterTypes.length);
-                } else if (strictMethodVerification && method.isAnnotationPresent(Subscribe.class)) {
-                    String methodName = method.getDeclaringClass().getName() + "." + method.getName();                }
+                    String methodName = method.getDeclaringClass().getName() +
+                            "." + method.getName();
+                    throw new EventBusException("@Subscribe method" + methodName +
+                            " must have exactly 1 parameter but has " + parameterTypes.length);
+                }
+            } else if (strictMethodVerification && method.isAnnotationPresent(Subscribe.class)) {
+                String methodName = method.getDeclaringClass().getName() + "." + method.getName();
+                throw new EventBusException(methodName + " is a illegal @Subscribe method: " +
+                        "must be public, non-static, and non-abstract");
             }
         }
     }
@@ -232,6 +246,7 @@ class SubscriberMethodFinder {
             }
         }
 
+        /** 获取clazz父类的类类型. */
         void moveToSuperclass() {
             if (skipSuperClasses) {
                 clazz = null;
