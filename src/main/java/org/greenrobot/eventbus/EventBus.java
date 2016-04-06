@@ -1,6 +1,7 @@
 package org.greenrobot.eventbus;
 
 import android.os.Looper;
+import android.util.Log;
 
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
@@ -223,5 +224,98 @@ public class EventBus {
         Class<?> eventClass = event.getClass();
         boolean subscriptionFound = false;
 
+        subscriptionFound = postSingleEventForEventType(event, postingState, eventClass);
+        if (!subscriptionFound) {
+            if (logNoSubscriberMessages) {
+                Log.e("EventBus", "No subscribers registered for event " + eventClass);
+            }
+            // TODO
+        }
+    }
+
+    private boolean postSingleEventForEventType(Object event, PostingThreadState postingState,
+                                                Class<?> eventClass) {
+        CopyOnWriteArrayList<Subscription> subscriptions;
+        synchronized (this) {
+            subscriptions = subscriptionsByEventType.get(eventClass);
+        }
+
+        if (subscriptions != null && !subscriptions.isEmpty()) {
+            for (Subscription subscription : subscriptions) {
+                postingState.event = event;
+                postingState.subscription = subscription;
+                boolean aborted = false;
+                try {
+                    postToSubscription(subscription, event, postingState.isMainThread);
+                    aborted = postingState.canceled;
+                } finally {
+                    postingState.event = null;
+                    postingState.subscription = null;
+                    postingState.canceled = false;
+                }
+                if (aborted) {
+                    break;
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private void postToSubscription(Subscription subscription, Object event, boolean isMainThread) {
+        switch (subscription.subscriberMethod.threadMode) {
+            case POSTING:
+                invokeSubscriber(subscription, event);
+                break;
+            case MAIN:
+                if (isMainThread) {
+                    invokeSubscriber(subscription, event);
+                } else {
+                    mainThreadPoster.enqueue(subscription, event);
+                }
+                break;
+            case BACKGROUND:
+                if (isMainThread) {
+                    backgroundPoster.enqueue(subscription, event);
+                } else {
+                    invokeSubscriber(subscription, event);
+                }
+                break;
+            case ASYNC:
+                asyncPoster.enqueue(subscription, event);
+                break;
+            default:
+                throw new IllegalStateException("Unknown thread mode: " +
+                        subscription.subscriberMethod.threadMode);
+        }
+    }
+
+    public synchronized void unregister(Object subscriber) {
+        List<Class<?>> subscribedTypes = typesBySubscriber.get(subscriber);
+        if (subscribedTypes != null) {
+            for (Class<?> eventType : subscribedTypes) {
+                unsubscribeByEventType(subscriber, eventType);
+            }
+            typesBySubscriber.remove(subscriber);
+        } else {
+            Log.e("EventBus", "Subscriber to unregister was not registered before: "
+                    + subscriber.getClass());
+        }
+    }
+
+    private void unsubscribeByEventType(Object subscriber, Class<?> eventType) {
+        List<Subscription> subscriptions = subscriptionsByEventType.get(eventType);
+        if (subscriptions != null) {
+            int size = subscriptions.size();
+            for (int i = 0; i < size; i ++) {
+                Subscription subscription = subscriptions.get(i);
+                if (subscription.subscriber == subscriber) {
+                    subscription.active = false;
+                    subscriptions.remove(i);
+                    i --;
+                    size --;
+                }
+            }
+        }
     }
 }

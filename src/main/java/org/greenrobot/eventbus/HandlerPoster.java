@@ -57,8 +57,10 @@ public class HandlerPoster extends Handler {
                         }
                     }
                 }
-                // 如果订阅者没有取消订阅,则分发消息
                 eventBus.invokeSubscriber(pendingPost);
+
+                // 如果在规定的时间内没有发送完队列中的所有请求,则先退出当前循环,让出cpu,
+                // 同时发送消息再次调度handleMessage方法.
                 long timeInMethod = SystemClock.uptimeMillis() - started;
                 if (timeInMethod >= maxMillisInsideHandleMessage) {
                     if (!sendMessage(obtainMessage())) {

@@ -1,7 +1,7 @@
 package org.greenrobot.eventbus;
 
 /**
- * Posts events in background
+ * 将订阅事件在后台响应执行,并且执行顺序是并发执行.
  */
 class AsyncPoster implements Runnable{
     private final PendingPostQueue queue;

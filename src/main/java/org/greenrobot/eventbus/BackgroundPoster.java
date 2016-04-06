@@ -3,7 +3,7 @@ package org.greenrobot.eventbus;
 import android.util.Log;
 
 /**
- * Posts events in background.
+ * 后台通过线程池去执行事件响应回调.
  */
 final class BackgroundPoster implements Runnable{
     private final PendingPostQueue queue;
