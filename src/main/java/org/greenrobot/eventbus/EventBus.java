@@ -16,9 +16,6 @@ import java.util.concurrent.ExecutorService;
  * EventBus is a central publish/subscribe event system for Android.
  */
 public class EventBus {
-    static volatile EventBus defaultInstance;
-
-    private static final EventBusBuilder DEFAULT_BUILDER = new EventBusBuilder();
     private static final Map<Class<?>, List<Class<?>>> eventTypesCache = new HashMap<>();
 
     private final Map<Class<?>, CopyOnWriteArrayList<Subscription>> subscriptionsByEventType;
@@ -50,6 +47,10 @@ public class EventBus {
 
     private final int indexCount;
 
+    /** 通过volatile保证每个线程获取的都是最新的EventBus. */
+    static volatile EventBus defaultInstance;
+
+    /** 懒汉的单例模式构造EventBus. */
     public static EventBus getDefault() {
         if (defaultInstance == null) {
             synchronized (EventBus.class) {
@@ -61,6 +62,7 @@ public class EventBus {
         return defaultInstance;
     }
 
+    private static final EventBusBuilder DEFAULT_BUILDER = new EventBusBuilder();
     public EventBus() {
         this(DEFAULT_BUILDER);
     }

@@ -1,12 +1,49 @@
-package org.greenrobot.eventbus;
+# EventBus
 
-import org.greenrobot.eventbus.meta.SubscriberInfoIndex;
+## 基础概念
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+EventBus是一个Android事件发布/订阅框架,通过解耦发布者和订阅者简化Android事件传递.事件传递既可以用于Android四大组件间的通讯,也可以用于用户异步线程和主线程间通讯等.
+传统的事件传递方法包括:Handler,BroadCastReceiver,interface回调,相比于EventBus,EventBus的代码更加简洁,代码简单,而且事件发布和订阅充分解耦.
+基本概念如下:
 
+* 事件(Event): 可以称为消息,其实就是一个对象.事件类型(EventType)指事件所属的Class.
+* 订阅者(Subscriber): 订阅某种事件类型的对象.当有发布者发布这类事件后,EventBus会执行订阅者的被Subscribe注解修饰的函数,这个函数叫事件响应函数.订阅者通过register接口订阅某个事件类型,unregister接口退订.订阅者存在优先级,优先级高的订阅者可以取消事件继续向优先级低的订阅者分发,默认所有订阅者优先级都为0.
+* 发布者(Publisher): 发布某事件的对象,通过EventBus.getDefault.post方法发布事件.
+
+## 构造EventBus
+
+EventBus的默认构造方法如下:
+```java
+EventBus.getDefault();
+```
+
+源码如下:
+```java
+/** 通过volatile保证每个线程获取的都是最新的EventBus. */
+static volatile EventBus defaultInstance;
+
+/** 懒汉的单例模式构造EventBus. */
+public static EventBus getDefault() {
+    if (defaultInstance == null) {
+        synchronized (EventBus.class) {
+            if (defaultInstance == null) {
+                defaultInstance = new EventBus();
+            }
+        }
+    }
+    return defaultInstance;
+}
+
+private static final EventBusBuilder DEFAULT_BUILDER = new EventBusBuilder();
+public EventBus() {
+    this(DEFAULT_BUILDER);
+}
+```
+
+### EventBusBuilder.java
+
+再去了解EventBus具体构造函数之前,需要先看一下EventBusBuilder的具体内容,中文注释源码如下:
+```java
 /**
  * 构建器模式
  * Effective Java : 遇到多个构造器参数时要考虑用构造器.
@@ -152,3 +189,5 @@ public class EventBusBuilder {
         return new EventBus(this);
     }
 }
+```
+
