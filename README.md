@@ -191,3 +191,7 @@ public class EventBusBuilder {
 }
 ```
 
+### EventBus的构造函数
+
+了解了EventBusBuilder的构造器模式之后,我们就可以去看一下EventBus的默认构造函数了.
+

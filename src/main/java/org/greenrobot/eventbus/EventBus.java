@@ -18,9 +18,6 @@ import java.util.concurrent.ExecutorService;
 public class EventBus {
     private static final Map<Class<?>, List<Class<?>>> eventTypesCache = new HashMap<>();
 
-    private final Map<Class<?>, CopyOnWriteArrayList<Subscription>> subscriptionsByEventType;
-    private final Map<Object, List<Class<?>>> typesBySubscriber;
-    private final Map<Class<?>, Object> stickyEvents;
 
     private final ThreadLocal<PostingThreadState> currentPostingThreadState =
             new ThreadLocal<PostingThreadState>() {
@@ -30,7 +27,6 @@ public class EventBus {
         }
     };
 
-    private final HandlerPoster mainThreadPoster;
     private final BackgroundPoster backgroundPoster;
     private final AsyncPoster asyncPoster;
     private final SubscriberMethodFinder subscriberMethodFinder;
@@ -66,6 +62,17 @@ public class EventBus {
     public EventBus() {
         this(DEFAULT_BUILDER);
     }
+
+    /** Map<订阅事件, 订阅该事件的订阅者集合> */
+    private final Map<Class<?>, CopyOnWriteArrayList<Subscription>> subscriptionsByEventType;
+
+    /** Map<订阅者, 订阅事件集合> */
+    private final Map<Object, List<Class<?>>> typesBySubscriber;
+
+    private final Map<Class<?>, Object> stickyEvents;
+
+    /** 主线程Handler实现类. */
+    private final HandlerPoster mainThreadPoster;
 
     EventBus(EventBusBuilder builder) {
         subscriptionsByEventType = new HashMap<>();
