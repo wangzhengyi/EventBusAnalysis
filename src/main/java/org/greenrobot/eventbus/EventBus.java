@@ -195,4 +195,33 @@ public class EventBus {
             }
         }
     }
+
+    /** Posts the given event to the event bus. */
+    public void post(Object event) {
+        PostingThreadState postingState = currentPostingThreadState.get();
+        List<Object> eventQueue = postingState.eventQueue;
+        eventQueue.add(event);
+
+        if (!postingState.isPosting) {
+            postingState.isMainThread = Looper.getMainLooper() == Looper.myLooper();
+            postingState.isPosting = true;
+            if (postingState.canceled) {
+                throw new EventBusException("Internal error. Abort state was not reset");
+            }
+            try {
+                while (!eventQueue.isEmpty()) {
+                    postSingleEvent(eventQueue.remove(0), postingState);
+                }
+            } finally {
+                postingState.isPosting = false;
+                postingState.isMainThread = false;
+            }
+        }
+    }
+
+    private void postSingleEvent(Object event, PostingThreadState postingState) {
+        Class<?> eventClass = event.getClass();
+        boolean subscriptionFound = false;
+
+    }
 }
