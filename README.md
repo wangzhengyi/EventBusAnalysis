@@ -194,4 +194,113 @@ public class EventBusBuilder {
 ### EventBus的构造函数
 
 了解了EventBusBuilder的构造器模式之后,我们就可以去看一下EventBus的默认构造函数了.
+```java
+/** Map<订阅事件, 订阅该事件的订阅者集合> */
+private final Map<Class<?>, CopyOnWriteArrayList<Subscription>> subscriptionsByEventType;
+
+/** Map<订阅者, 订阅事件集合> */
+private final Map<Object, List<Class<?>>> typesBySubscriber;
+
+private final Map<Class<?>, Object> stickyEvents;
+
+/** 主线程Handler实现类. */
+private final HandlerPoster mainThreadPoster;
+
+/** 继承Runnable的异步线程处理类,将订阅函数的执行通过Executor和队列机制在后台一个一个的执行. */
+private final BackgroundPoster backgroundPoster;
+
+/** 继承Runnable的异步线程处理类, 与BackgroundPoster不同的是,订阅函数的执行是并发进行的. */
+private final AsyncPoster asyncPoster;
+
+private final int indexCount;
+
+/** 订阅者响应函数信息存储和查找类. */
+private final SubscriberMethodFinder subscriberMethodFinder;
+
+/** 用于订阅函数后台执行的线程池. */
+private final ExecutorService executorService;
+
+/** EventBusBuilder构造器中的同一成员. */
+private final boolean throwSubscriberException;
+private final boolean logSubscriberExceptions;
+private final boolean logNoSubscriberMessages;
+private final boolean sendSubscriberExceptionEvent;
+private final boolean sendNoSubscriberEvent;
+private final boolean eventInheritance;
+
+EventBus(EventBusBuilder builder) {
+    subscriptionsByEventType = new HashMap<>();
+    typesBySubscriber = new HashMap<>();
+    stickyEvents = new ConcurrentHashMap<>();
+    mainThreadPoster = new HandlerPoster(this, Looper.myLooper(), 10);
+    backgroundPoster = new BackgroundPoster(this);
+    asyncPoster = new AsyncPoster(this);
+    indexCount = builder.subscriberInfoIndexes != null ?
+            builder.subscriberInfoIndexes.size() : 0;
+    subscriberMethodFinder = new SubscriberMethodFinder(builder.subscriberInfoIndexes,
+            builder.strictMethodVerification, builder.ignoreGeneratedIndex);
+    logSubscriberExceptions = builder.logSubscriberExceptions;
+    logNoSubscriberMessages = builder.logNoSubscriberMessages;
+    sendSubscriberExceptionEvent = builder.sendSubscriberExceptionEvent;
+    sendNoSubscriberEvent = builder.sendNoSubscriberEvent;
+    throwSubscriberException = builder.throwSubscriberException;
+    eventInheritance = builder.eventInheritance;
+    executorService = builder.executorService;
+}
+```
+
+了解了EventBus的构造函数,那接下来,我们就要进入EventBus的注册流程和发送事件流程了.
+
+## 注册流程
+
+订阅者向EventBus注册时,自身首先需要完成两件事情:
+1. 订阅者本身需要声明只有一个参数的public方法,并且使用Subscribe进行注解.
+2. 订阅者需要调用EventBus的register方法进行注册.
+
+示例代码如下：
+```java
+public class MessageEvent {}
+
+class Subscriber extents Activity{
+    /** 声明订阅函数. */
+    @Subscibe(threadMode = ThreadMode.MAIN)
+    public void showToast(MessageEvent event) {
+        Toast.makeText(this, "show toast", Toast.LENGTH_LONG).show();
+    }
+    
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        /** 注册当前订阅者类. */
+        EvnetBus.getDefault().register(this);
+    }
+}
+```
+
+针对上述两个必须完成的事情,我们分别进行讲解.
+
+### Subscribe.java
+
+Subscribe注解是EventBus3.0版本之后添加的,用来标识当前订阅者类中的订阅函数.
+之前EventBus的版本是遍历onEvent事件开头的函数来作为订阅函数,有很多局限性(例如函数命名等),使用注解更加规范而且更加灵活一些.
+Subscribe注解的中文注释源码如下:
+```java
+/** 注解的生命周期是:RUNTIME,注解对象是:Method,并且可以被javadoc等工具文档化. */
+@Documented
+@Retention(RetentionPolicy.RUNTIME)
+@Target({ElementType.METHOD})
+public @interface Subscribe {
+    /** 标记订阅方法所在线程的模型. */
+    ThreadMode threadMode() default ThreadMode.POSTING;
+
+    /** 标记订阅方法是否为sticky类型. */
+    boolean sticky() default false;
+
+    /** 标记订阅方法的优先级. */
+    int priority() default 0;
+}
+```
+
+### 注册函数实现
+
 

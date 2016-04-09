@@ -27,13 +27,6 @@ public class EventBus {
         }
     };
 
-    private final BackgroundPoster backgroundPoster;
-    private final AsyncPoster asyncPoster;
-    private final SubscriberMethodFinder subscriberMethodFinder;
-
-
-    private final ExecutorService executorService;
-
     private final boolean throwSubscriberException;
     private final boolean logSubscriberExceptions;
     private final boolean logNoSubscriberMessages;
@@ -41,7 +34,6 @@ public class EventBus {
     private final boolean sendNoSubscriberEvent;
     private final boolean eventInheritance;
 
-    private final int indexCount;
 
     /** 通过volatile保证每个线程获取的都是最新的EventBus. */
     static volatile EventBus defaultInstance;
@@ -73,6 +65,20 @@ public class EventBus {
 
     /** 主线程Handler实现类. */
     private final HandlerPoster mainThreadPoster;
+
+    /** 继承Runnable的异步线程处理类,将订阅函数的执行通过Executor和队列机制在后台一个一个的执行. */
+    private final BackgroundPoster backgroundPoster;
+
+    /** 继承Runnable的异步线程处理类, 与BackgroundPoster不同的是,订阅函数的执行是并发进行的. */
+    private final AsyncPoster asyncPoster;
+
+    private final int indexCount;
+
+    /** 订阅者响应函数信息存储和查找类. */
+    private final SubscriberMethodFinder subscriberMethodFinder;
+
+    /** 用于订阅函数后台执行的线程池. */
+    private final ExecutorService executorService;
 
     EventBus(EventBusBuilder builder) {
         subscriptionsByEventType = new HashMap<>();
