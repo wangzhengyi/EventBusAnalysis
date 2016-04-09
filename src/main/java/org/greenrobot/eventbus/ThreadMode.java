@@ -1,27 +1,16 @@
 package org.greenrobot.eventbus;
 
-/**
- * Each event handler method has a thread mode, which determines in which thread the method is to be
- * called by EventBus.
- */
+/** 响应函数执行时所在线程的类型. */
 public enum ThreadMode {
-    /**
-     * Subscriber will be called in the same thread, which is posting the event.
-     */
+    /** 响应函数需要运行的线程和发送响应事件的线程为同一线程. */
     POSTING,
 
-    /**
-     * Subscriber will be called in Android's main thread(sometimes referred to as UI thread).
-     */
+    /** 响应函数需要运行在主线程. */
     MAIN,
 
-    /**
-     * Subscriber will be called in a backgroud thread.
-     */
+    /** 响应函数需要运行的线程为后台线程,且根据优先级等进行排队,后台顺序执行. */
     BACKGROUND,
 
-    /**
-     * Event handler methods are called in a separate thread.
-     */
+    /** 响应函数需要运行的线程为后台线程,可并发执行. */
     ASYNC
 }

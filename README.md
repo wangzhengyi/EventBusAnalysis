@@ -303,4 +303,123 @@ public @interface Subscribe {
 
 ### 注册函数实现
 
+注册函数的源码实现如下:
+```java
+/** 订阅事件. */
+public void register(Object subscriber) {
+    // 获取订阅者类的类类型.
+    Class<?> subscriberClass = subscriber.getClass();
+    // 通过反射机制获取订阅者全部的响应函数信息.
+    List<SubscriberMethod> subscriberMethods = subscriberMethodFinder.
+            findSubscriberMethods(subscriberClass);
+    // 构造订阅函数-订阅事件集合 与 订阅事件-订阅函数集合
+    synchronized (this) {
+        for (SubscriberMethod subscriberMethod : subscriberMethods) {
+            subscribe(subscriber, subscriberMethod);
+        }
+    }
+}
+```
+订阅函数的实现稍微复杂一些,这也是EventBus的核心所在,我们逐步分析每一个函数的具体实现.
 
+第一步,获取订阅者的类类型,没啥好说的,获取类类型之后,就能通过Java的反射机制来充分获取这个类的具体信息.
+第二步,通过SubscriberMethodFinder类来解析订阅者类,获取所有的订阅函数集合.
+第三步,遍历订阅函数,构造订阅函数与订阅事件的双重映射.
+
+流程虽然很简单,但是为了深入剖析其EventBus的注册具体实现,接下来我们针对二和三步进行详细讲解,包括其涉及的自定义类实现.
+
+#### SubscriberMethod.java
+
+第二步中,通过SubscriberMethodFinder类的findSubscriberMethods方法,获取了当前订阅者的所有订阅函数信息集合.
+而SubscriberMethod类就是对订阅函数的抽象,中文注释源码如下：
+```java
+/**
+ * 订阅者事件响应函数信息.
+ */
+public class SubscriberMethod {
+    /** 响应函数方法的类类型,可通过invoke方法对该方法进行调用. */
+    final Method method;
+
+    /** 函数运行所在的线程的线程类型. */
+    final ThreadMode threadMode;
+
+    /** 订阅事件的类型,也是订阅函数第一个形参的参数类型. */
+    final Class<?> eventType;
+
+    /** 响应函数的优先级. */
+    final int priority;
+
+    /** 是否为sticky响应函数. */
+    final boolean sticky;
+
+    /** Used for efficient comparison */
+    String methodString;
+
+    public SubscriberMethod(Method method, Class<?> eventType, ThreadMode threadMode, int priority,
+                            boolean sticky) {
+        this.method = method;
+        this.threadMode = threadMode;
+        this.eventType = eventType;
+        this.priority = priority;
+        this.sticky = sticky;
+    }
+
+    @Override
+    public boolean equals(Object other) {
+        if (other == this) {
+            return true;
+        } else if (other instanceof SubscriberMethod) {
+            checkMethodString();
+            SubscriberMethod otherSubscriberMethod = (SubscriberMethod) other;
+            otherSubscriberMethod.checkMethodString();
+            return methodString.equals(otherSubscriberMethod.methodString);
+        } else {
+            return false;
+        }
+    }
+
+    /**
+     * 构造methodString,构造方法:${methodClassName}#${methodName}.
+     */
+    @SuppressWarnings("StringBufferReplaceableByString")
+    private synchronized void checkMethodString() {
+        if (methodString == null) {
+            StringBuilder builder = new StringBuilder(64);
+            builder.append(method.getDeclaringClass().getName());
+            builder.append("#").append(method.getName());
+            builder.append("(").append(eventType.getName());
+            methodString = builder.toString();
+        }
+    }
+
+    @Override
+    public int hashCode() {
+        return method.hashCode();
+    }
+}
+```
+这个抽象很简单,而且和Subscriber注解其实是一一对应的,只是多了一个eventType成员属性和equals比较方法.
+其中:
+
+* eventType:是该订阅函数唯一的参数的类类型,也就是订阅函数对应的订阅事件的类型.
+* equals: 该方法通过构造${methodClassName}#${methodName}字符串来比较两个订阅函数是否相同.
+
+补充一个ThreadMode的中文注解,ThreadMode就是当前订阅函数执行所在的线程类型,包括:
+```java
+package org.greenrobot.eventbus;
+
+/** 响应函数执行时所在线程的类型. */
+public enum ThreadMode {
+    /** 响应函数需要运行的线程和发送响应事件的线程为同一线程. */
+    POSTING,
+
+    /** 响应函数需要运行在主线程. */
+    MAIN,
+
+    /** 响应函数需要运行的线程为后台线程,且根据优先级等进行排队,后台顺序执行. */
+    BACKGROUND,
+
+    /** 响应函数需要运行的线程为后台线程,可并发执行. */
+    ASYNC
+}
+```

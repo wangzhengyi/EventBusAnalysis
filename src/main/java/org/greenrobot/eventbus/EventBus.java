@@ -149,10 +149,12 @@ public class EventBus {
 
     /** 订阅事件. */
     public void register(Object subscriber) {
+        // 获取订阅者类的类类型.
         Class<?> subscriberClass = subscriber.getClass();
         // 通过反射机制获取订阅者全部的响应函数信息.
         List<SubscriberMethod> subscriberMethods = subscriberMethodFinder.
                 findSubscriberMethods(subscriberClass);
+        // 构造订阅函数-订阅事件集合 与 订阅事件-订阅函数集合
         synchronized (this) {
             for (SubscriberMethod subscriberMethod : subscriberMethods) {
                 subscribe(subscriber, subscriberMethod);

@@ -6,7 +6,7 @@ import java.lang.reflect.Method;
  * 订阅者事件响应函数信息.
  */
 public class SubscriberMethod {
-    /** 响应函数的方法类型. */
+    /** 响应函数方法的类类型,可通过invoke方法对该方法进行调用. */
     final Method method;
 
     /** 函数运行所在的线程的线程类型. */
@@ -15,7 +15,10 @@ public class SubscriberMethod {
     /** 订阅事件的类型,也是订阅函数第一个形参的参数类型. */
     final Class<?> eventType;
 
+    /** 响应函数的优先级. */
     final int priority;
+
+    /** 是否为sticky响应函数. */
     final boolean sticky;
 
     /** Used for efficient comparison */
