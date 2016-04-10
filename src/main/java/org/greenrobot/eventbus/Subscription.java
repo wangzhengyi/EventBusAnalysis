@@ -1,7 +1,7 @@
 package org.greenrobot.eventbus;
 
 /**
- * 订阅者信息
+ * 订阅者信息,包含订阅者对象,订阅者中一个订阅函数.
  */
 final class Subscription {
     /** 订阅者的实例化对象. */

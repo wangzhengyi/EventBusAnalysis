@@ -8,6 +8,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
@@ -55,12 +57,13 @@ public class EventBus {
         this(DEFAULT_BUILDER);
     }
 
-    /** Map<订阅事件, 订阅该事件的订阅者集合> */
+    /** Map<订阅事件, 订阅该事件的订阅者集合>. */
     private final Map<Class<?>, CopyOnWriteArrayList<Subscription>> subscriptionsByEventType;
 
-    /** Map<订阅者, 订阅事件集合> */
+    /** Map<订阅者, 订阅事件集合>. */
     private final Map<Object, List<Class<?>>> typesBySubscriber;
 
+    /** Map<订阅事件类类型,订阅事件实例对象>. */
     private final Map<Class<?>, Object> stickyEvents;
 
     /** 主线程Handler实现类. */
@@ -204,13 +207,30 @@ public class EventBus {
         // 将订阅事件加入到当前订阅者的订阅事件集合中.
         subscribedEvents.add(eventType);
 
-        // TODO:单独处理sticky的method
+        // 如果订阅方法为sticky类型,则立即分发sticky事件.
         if (subscriberMethod.sticky) {
+            // eventInheritance的作用:是否响应订阅事件的父类事件.
             if (eventInheritance) {
-
+                Set<Map.Entry<Class<?>, Object>> entries = stickyEvents.entrySet();
+                for (Map.Entry<Class<?>, Object> entry : entries) {
+                    Class<?> candidateEventType = entry.getKey();
+                    if (eventType.isAssignableFrom(candidateEventType)) {
+                        Object stickyEvent = entry.getValue();
+                        checkPostStickyEventToSubscription(newSubscription, stickyEvent);
+                    }
+                }
             } else {
-
+                Object stickyEvent = stickyEvents.get(eventType);
+                postToSubscription(newSubscription, stickyEvent,
+                        Looper.getMainLooper() == Looper.myLooper());
             }
+        }
+    }
+
+    private void checkPostStickyEventToSubscription(Subscription newSubscription, Object stickyEvent) {
+        if (stickyEvent != null) {
+            postToSubscription(newSubscription, stickyEvent,
+                    Looper.getMainLooper() == Looper.myLooper());
         }
     }
 

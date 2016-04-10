@@ -30,7 +30,7 @@ public class EventBusBuilder {
     /** 如果失败,则抛出异常. */
     boolean throwSubscriberException;
 
-    /** Event的子类是否也能响应订阅者. */
+    /** 是否响应订阅事件的父类事件. */
     boolean eventInheritance = true;
     boolean ignoreGeneratedIndex;
 
