@@ -423,3 +423,9 @@ public enum ThreadMode {
     ASYNC
 }
 ```
+
+#### SubscriberMethodFinder.java
+
+在介绍SubscriberMethodFinder源码之前,需要说明一下,EventBus3.0版本提供了EventBusAnnotationProcessor这个类,用于在编译期获取并缓存@Subscribe注解的方法.这里由于篇幅和介绍EventBus主要功能的关系,省略这部分代码的讲解.
+只介绍SubscriberMethodFinder在运行时是如何通过反射获取订阅者类中的订阅函数信息的.
+

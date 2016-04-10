@@ -14,6 +14,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * 订阅者响应函数发现类.
  */
+@SuppressWarnings({"unused", "FieldCanBeLocal"})
 class SubscriberMethodFinder {
     /** 这两种是编译器添加的方法,因为需要忽略. */
     private static final int BRIDGE = 0X40;
@@ -23,14 +24,21 @@ class SubscriberMethodFinder {
     private static final int MODIFIERS_IGNORE = Modifier.ABSTRACT | Modifier.STATIC
             | BRIDGE | SYNTHETIC;
 
+    /** 线程安全的缓存Map,存储的键值对为<订阅者类类型,订阅者方法信息集合>. */
     private static final Map<Class<?>, List<SubscriberMethod>> METHOD_CACHE =
             new ConcurrentHashMap<>();
 
-    private List<SubscriberInfoIndex> subscriberInfoIndexes;
-    private final boolean strictMethodVerification;
+    /** 这里我们只介绍ignoreGeneratedIndex为true的情况,即只在运行时分析订阅者类的订阅函数信息. */
     private final boolean ignoreGeneratedIndex;
 
+    /** ignoreGeneratedIndex为true时,subscriberInfoIndexes为空集合. */
+    private List<SubscriberInfoIndex> subscriberInfoIndexes;
+    private final boolean strictMethodVerification;
+
+    /** 对象缓冲池的默认大小. */
     private static final int POOL_SIZE = 4;
+
+    /** FindState对象缓冲池. */
     private static final FindState[] FIND_STATE_POOL = new FindState[POOL_SIZE];
 
     SubscriberMethodFinder(List<SubscriberInfoIndex> subscriberInfoIndexes,
@@ -41,23 +49,20 @@ class SubscriberMethodFinder {
     }
 
     List<SubscriberMethod> findSubscriberMethods(Class<?> subscriberClass) {
-        // 如果之前缓存过该类的响应函数,则直接从缓存中该订阅者的获取响应函数集合.
+        // 先从METHOD_CACHE中看是否有缓存.key:订阅者的类类型.value:订阅者的订阅方法信息集合.
         List<SubscriberMethod> subscriberMethods = METHOD_CACHE.get(subscriberClass);
         if (subscriberMethods != null) {
             return subscriberMethods;
         }
 
-        if (ignoreGeneratedIndex) {
-            subscriberMethods = findUsingReflection(subscriberClass);
-        } else {
-            subscriberMethods = findUsingInfo(subscriberClass);
-        }
+        // 通过反射来获取订阅者的订阅方法信息集合.
+        subscriberMethods = findUsingReflection(subscriberClass);
 
         if (subscriberMethods.isEmpty()) {
             throw new EventBusException("Subscriber" + subscriberClass + " and its super classes have no " +
                     "public methods with the @Subscribe annotation");
         } else {
-            // 缓存订阅者-订阅函数集合这个key-value.
+            // 在METHOD_CACHE中缓存订阅者类类型-订阅方法信息集合.
             METHOD_CACHE.put(subscriberClass, subscriberMethods);
             return subscriberMethods;
         }
@@ -67,47 +72,28 @@ class SubscriberMethodFinder {
         FindState findState = prepareFindState();
         findState.initForSubscriber(subscriberClass);
         while (findState.clazz != null) {
+            // 通过反射获取订阅函数集合.
             findUsingReflectionInSingleClass(findState);
+            // 检查订阅者类的父类中是否有符合条件的订阅函数.
             findState.moveToSuperclass();
         }
         return getMethodsAndRelease(findState);
     }
 
-    private List<SubscriberMethod> findUsingInfo(Class<?> subscriberClass) {
-        // 构造订阅者对应的FindState对象.
-        FindState findState = prepareFindState();
-        findState.initForSubscriber(subscriberClass);
-        while (findState.clazz != null) {
-            // subscriberInfo初始为null
-            findState.subscriberInfo = getSubscriberInfo(findState);
-            if (findState.subscriberInfo != null) {
-                SubscriberMethod[] array = findState.subscriberInfo.getSubscriberMethods();
-                for (SubscriberMethod subscriberMethod : array) {
-                    if (findState.checkAdd(subscriberMethod.method, subscriberMethod.eventType)) {
-                        findState.subscriberMethods.add(subscriberMethod);
-                    }
-                }
-            } else {
-                // 通过反射获取响应函数集合.
-                findUsingReflectionInSingleClass(findState);
-            }
-            findState.moveToSuperclass();
-        }
-        return getMethodsAndRelease(findState);
-    }
-
-    private List<SubscriberMethod> getMethodsAndRelease(FindState findState) {
-        List<SubscriberMethod> subscriberMethods = new ArrayList<>(findState.subscriberMethods);
-        findState.recycle();
+    /** 对象池,复用FindState对象,防止对象被多次new或者gc. */
+    private FindState prepareFindState() {
         synchronized (FIND_STATE_POOL) {
             for (int i = 0; i < POOL_SIZE; i ++) {
-                if (FIND_STATE_POOL[i] == null) {
-                    FIND_STATE_POOL[i] = findState;
-                    break;
+                FindState state = FIND_STATE_POOL[i];
+                if (state != null) {
+                    FIND_STATE_POOL[i] = null;
+                    return state;
                 }
             }
         }
-        return subscriberMethods;
+
+        // 说明对象池中没有被new出的FindState对象,所以需要手动new一个出来,返回给调用者.
+        return new FindState();
     }
 
     /** 通过反射来解析订阅者类获取订阅函数信息. */
@@ -124,7 +110,7 @@ class SubscriberMethodFinder {
         for (Method method : methods) {
             // 获取当前方法的语言修饰符
             int modifiers = method.getModifiers();
-            // 订阅方法必须是public而且不能在被忽略的修饰符集合中.
+            // 订阅方法必须是public而且不能在被忽略的修饰符集合中[abstract,static,bridge,synthetic].
             if ((modifiers & Modifier.PUBLIC) != 0 && (modifiers & MODIFIERS_IGNORE) == 0) {
                 // 获取指定方法的形参类型集合
                 Class<?>[] parameterTypes = method.getParameterTypes();
@@ -135,7 +121,7 @@ class SubscriberMethodFinder {
                     if (subscribeAnnotation != null) {
                         Class<?> eventType = parameterTypes[0];
                         if (findState.checkAdd(method, eventType)) {
-                            // 订阅函数的默认所在线程的线程类型为POSTING
+                            // 封装订阅函数到FindState的subscriberMethods数组中.
                             ThreadMode threadMode = subscribeAnnotation.threadMode();
                             findState.subscriberMethods.add(new SubscriberMethod(
                                     method, eventType, threadMode, subscribeAnnotation.priority(),
@@ -144,12 +130,14 @@ class SubscriberMethodFinder {
                         }
                     }
                 } else if (strictMethodVerification && method.isAnnotationPresent(Subscribe.class)) {
+                    // 订阅函数的参数必须只有一个,也就说一个订阅函数只能订阅一个事件.
                     String methodName = method.getDeclaringClass().getName() +
                             "." + method.getName();
                     throw new EventBusException("@Subscribe method" + methodName +
                             " must have exactly 1 parameter but has " + parameterTypes.length);
                 }
             } else if (strictMethodVerification && method.isAnnotationPresent(Subscribe.class)) {
+                // 订阅函数必须是public的,而且不能有[abstract,static,bridge,synthetic]修饰符.
                 String methodName = method.getDeclaringClass().getName() + "." + method.getName();
                 throw new EventBusException(methodName + " is a illegal @Subscribe method: " +
                         "must be public, non-static, and non-abstract");
@@ -157,39 +145,22 @@ class SubscriberMethodFinder {
         }
     }
 
-    private SubscriberInfo getSubscriberInfo(FindState findState) {
-        if (findState.subscriberInfo != null
-                && findState.subscriberInfo.getSuperSubscriberInfo() != null) {
-            SubscriberInfo superclassInfo = findState.subscriberInfo.getSuperSubscriberInfo();
-            if (findState.clazz == superclassInfo.getSubscriberClass()) {
-                return superclassInfo;
-            }
-            if (subscriberInfoIndexes != null) {
-                for (SubscriberInfoIndex index : subscriberInfoIndexes) {
-                    SubscriberInfo info = index.getSubscriberInfo(findState.clazz);
-                    if (info != null) {
-                        return info;
-                    }
-                }
-            }
-        }
-        return null;
-    }
-
-    private FindState prepareFindState() {
+    /** 返回订阅函数List,并释放FindState到对象缓冲池中. */
+    private List<SubscriberMethod> getMethodsAndRelease(FindState findState) {
+        List<SubscriberMethod> subscriberMethods = new ArrayList<>(findState.subscriberMethods);
+        findState.recycle();
         synchronized (FIND_STATE_POOL) {
             for (int i = 0; i < POOL_SIZE; i ++) {
-                FindState state = FIND_STATE_POOL[i];
-                if (state != null) {
-                    FIND_STATE_POOL[i] = null;
-                    return state;
+                if (FIND_STATE_POOL[i] == null) {
+                    FIND_STATE_POOL[i] = findState;
+                    break;
                 }
             }
         }
-
-        return new FindState();
+        return subscriberMethods;
     }
 
+    /** 用来对订阅方法进行校验和保存. */
     static class FindState {
         final List<SubscriberMethod> subscriberMethods = new ArrayList<>();
         final Map<Class, Object> anyMethodByEventType = new HashMap<>();
