@@ -233,9 +233,11 @@ public class EventBus {
         }
     }
 
-    /** Posts the given event to the event bus. */
+    /** 事件分发. */
     public void post(Object event) {
+        // 获取当前线程的Posting状态.
         PostingThreadState postingState = currentPostingThreadState.get();
+        // 获取当前线程的事件队列.
         List<Object> eventQueue = postingState.eventQueue;
         eventQueue.add(event);
 

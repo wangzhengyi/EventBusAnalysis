@@ -830,3 +830,16 @@ private void unsubscribeByEventType(Object subscriber, Class<?> eventType) {
     }
 }
 ```
+
+## 事件发布post流程
+
+EventBus发布一个事件非常简单,示例代码如下:
+```java
+EventBus.getDefault().post(new MessageEvent());
+```
+
+当调用上述代码之后,所有订阅MessageEvent的方法均会在其声明的线程中得到执行.乍看起来很神奇,但是有了之前注册流程的分析,我们已经知道：
+EventBus的单例中已经存储了订阅事件-订阅者信息集合的映射关系,我们只要遍历其订阅者信息集合,再其规定的线程中执行即可.
+知道了上述原理,我们先来看一下post方法的具体实现.
+
+### post()方法
