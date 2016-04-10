@@ -14,9 +14,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 
-/**
- * EventBus is a central publish/subscribe event system for Android.
- */
+/** EventBus,Android平台的订阅,发布总线机制. */
+@SuppressWarnings({"unused", "FieldCanBeLocal"})
 public class EventBus {
     private static final Map<Class<?>, List<Class<?>>> eventTypesCache = new HashMap<>();
 
@@ -259,7 +258,7 @@ public class EventBus {
 
     private void postSingleEvent(Object event, PostingThreadState postingState) {
         Class<?> eventClass = event.getClass();
-        boolean subscriptionFound = false;
+        boolean subscriptionFound;
 
         subscriptionFound = postSingleEventForEventType(event, postingState, eventClass);
         if (!subscriptionFound) {
@@ -327,12 +326,15 @@ public class EventBus {
         }
     }
 
+    /** 取消订阅. */
     public synchronized void unregister(Object subscriber) {
+        // 获取该订阅者所有的订阅事件类类型集合.
         List<Class<?>> subscribedTypes = typesBySubscriber.get(subscriber);
         if (subscribedTypes != null) {
             for (Class<?> eventType : subscribedTypes) {
                 unsubscribeByEventType(subscriber, eventType);
             }
+            // 从typesBySubscriber删除该<订阅者对象,订阅事件类类型集合>
             typesBySubscriber.remove(subscriber);
         } else {
             Log.e("EventBus", "Subscriber to unregister was not registered before: "
@@ -340,12 +342,15 @@ public class EventBus {
         }
     }
 
+    /** 从订阅事件对应的订阅者集合中删除取消注册的订阅者. */
     private void unsubscribeByEventType(Object subscriber, Class<?> eventType) {
+        // 获取订阅事件对应的订阅者信息集合.
         List<Subscription> subscriptions = subscriptionsByEventType.get(eventType);
         if (subscriptions != null) {
             int size = subscriptions.size();
             for (int i = 0; i < size; i ++) {
                 Subscription subscription = subscriptions.get(i);
+                // 从订阅者集合中删除特定的订阅者.
                 if (subscription.subscriber == subscriber) {
                     subscription.active = false;
                     subscriptions.remove(i);

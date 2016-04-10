@@ -777,3 +777,56 @@ private void subscribe(Object subscriber, SubscriberMethod subscriberMethod) {
 EventBus的注册流程图如下(ps,如果大家认真的看完上述分析,相信对EventBus的注册流程图应该会很容易理解):
 
 ![register](https://github.com/wangzhengyi/EventBusAnalysis/raw/master/picture/register.png)
+
+
+## 取消注册流程
+
+学习了EventBus的订阅者注册流程,我们趁热打铁,来看一下EventBus的取消注册流程是怎样的.
+其实,从前面注册流程的学习,我们应该已经了解到,取消注册其实就是为了从订阅者-订阅事件这两个双向集合[subscriptionsByEventType,typesBySubscriber]中删除相应的对象,可以避免内存泄露.
+
+### 取消注册示例代码
+
+我们还是从用法入手,然后逐步深入源码.取消注册的示例代码非常简单:
+```java
+EventBus.getDefault().unregister(this);
+```
+
+### unregister()方法
+
+unregister方法代码很简单,就是从两个集合中删除指定的对象,中文注释源码如下:
+```java
+/** 取消订阅. */
+public synchronized void unregister(Object subscriber) {
+    // 获取该订阅者所有的订阅事件类类型集合.
+    List<Class<?>> subscribedTypes = typesBySubscriber.get(subscriber);
+    if (subscribedTypes != null) {
+        for (Class<?> eventType : subscribedTypes) {
+            unsubscribeByEventType(subscriber, eventType);
+        }
+        // 从typesBySubscriber删除该<订阅者对象,订阅事件类类型集合>
+        typesBySubscriber.remove(subscriber);
+    } else {
+        Log.e("EventBus", "Subscriber to unregister was not registered before: "
+                + subscriber.getClass());
+    }
+}
+
+/** 从订阅事件对应的订阅者集合中删除取消注册的订阅者. */
+private void unsubscribeByEventType(Object subscriber, Class<?> eventType) {
+    // 获取订阅事件对应的订阅者信息集合.
+    List<Subscription> subscriptions = subscriptionsByEventType.get(eventType);
+    if (subscriptions != null) {
+        int size = subscriptions.size();
+        for (int i = 0; i < size; i ++) {
+            Subscription subscription = subscriptions.get(i);
+            // 从订阅者集合中删除特定的订阅者.
+            if (subscription.subscriber == subscriber) {
+                subscription.active = false;
+                subscriptions.remove(i);
+                i --;
+                size --;
+            }
+        }
+    }
+}
+```

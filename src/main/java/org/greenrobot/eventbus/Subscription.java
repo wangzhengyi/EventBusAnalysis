@@ -10,6 +10,7 @@ final class Subscription {
     /** 订阅者的订阅函数信息. */
     final SubscriberMethod subscriberMethod;
 
+    /** 订阅函数是否被取消注册. */
     volatile boolean active;
 
     Subscription(Object subscriber, SubscriberMethod subscriberMethod) {
