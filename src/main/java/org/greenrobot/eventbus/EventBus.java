@@ -19,7 +19,7 @@ import java.util.concurrent.ExecutorService;
 public class EventBus {
     private static final Map<Class<?>, List<Class<?>>> eventTypesCache = new HashMap<>();
 
-
+    /** 存储当前线程的PostingThreadState对象. */
     private final ThreadLocal<PostingThreadState> currentPostingThreadState =
             new ThreadLocal<PostingThreadState>() {
         @Override
@@ -106,47 +106,12 @@ public class EventBus {
         return executorService;
     }
 
-    /**
-     * Invokes the subscriber if the subscriptions is still active.
-     * @param pendingPost
-     */
-    void invokeSubscriber(PendingPost pendingPost) {
-        Object event = pendingPost.event;
-        Subscription subscription = pendingPost.subscription;
-        PendingPost.releasePendingPost(pendingPost);
-        if (subscription.active) {
-            invokeSubscriber(subscription, event);
-        }
-    }
-
-    void invokeSubscriber(Subscription subscription, Object event) {
-        try {
-            subscription.subscriberMethod.method.invoke(subscription.subscriber, event);
-        } catch (InvocationTargetException e) {
-            e.printStackTrace();
-        } catch (IllegalAccessException e) {
-            throw new IllegalStateException("Unexpected exception", e);
-        }
-    }
-
     private void handleSubscriberException(Subscription subscription, Object event, Throwable cause) {
         if (event instanceof  SubscriberExceptionEvent) {
 
         } else {
 
         }
-    }
-
-    /**
-     * For ThreadLocal, much faster to set (and get multiple values).
-     */
-    final static class PostingThreadState {
-        final List<Object> eventQueue = new ArrayList<Object>();
-        boolean isPosting;
-        boolean isMainThread;
-        Subscription subscription;
-        Object event;
-        boolean canceled;
     }
 
     /** 订阅事件. */
@@ -233,6 +198,27 @@ public class EventBus {
         }
     }
 
+    /** 当前线程的事件分发类. */
+    final static class PostingThreadState {
+        /** 当前线程的发布事件队列. */
+        final List<Object> eventQueue = new ArrayList<>();
+
+        /** 当前线程是否处于发送事件的过程中. */
+        boolean isPosting;
+
+        /** 当前线程是否是主线程. */
+        boolean isMainThread;
+
+        /** 处理当前分发的订阅事件的订阅者. */
+        Subscription subscription;
+
+        /** 当前准备分发的订阅事件. */
+        Object event;
+
+        /** 当前线程分发是否被取消. */
+        boolean canceled;
+    }
+
     /** 事件分发. */
     public void post(Object event) {
         // 获取当前线程的Posting状态.
@@ -248,10 +234,12 @@ public class EventBus {
                 throw new EventBusException("Internal error. Abort state was not reset");
             }
             try {
+                // 循环处理当前线程eventQueue中的每一个event对象.
                 while (!eventQueue.isEmpty()) {
                     postSingleEvent(eventQueue.remove(0), postingState);
                 }
             } finally {
+                // 处理完知乎重置postingState一些标识信息.
                 postingState.isPosting = false;
                 postingState.isMainThread = false;
             }
@@ -260,14 +248,54 @@ public class EventBus {
 
     private void postSingleEvent(Object event, PostingThreadState postingState) {
         Class<?> eventClass = event.getClass();
-        boolean subscriptionFound;
+        boolean subscriptionFound = false;
+        if (eventInheritance) {
+            List<Class<?>> eventTypes = lookupAllEventTypes(eventClass);
+            int countTypes = eventTypes.size();
+            for (int h = 0; h < countTypes; h ++) {
+                Class<?> clazz = eventTypes.get(h);
+                subscriptionFound |= postSingleEventForEventType(event, postingState, clazz);
+            }
+        } else {
+            subscriptionFound = postSingleEventForEventType(event, postingState, eventClass);
+        }
 
-        subscriptionFound = postSingleEventForEventType(event, postingState, eventClass);
         if (!subscriptionFound) {
             if (logNoSubscriberMessages) {
-                Log.e("EventBus", "No subscribers registered for event " + eventClass);
+                Log.d("EventBus", "No subscribers registered for event " + eventClass);
             }
-            // TODO
+            if (sendNoSubscriberEvent && eventClass != NoSubscriberEvent.class &&
+                    eventClass != SubscriberExceptionEvent.class) {
+                post(new NoSubscriberEvent(this, event));
+            }
+        }
+    }
+
+    /** 找出当前订阅事件类类型eventClass的所有父类的类类型和其实现的接口的类类型. */
+    private static List<Class<?>> lookupAllEventTypes(Class<?> eventClass) {
+        synchronized (eventTypesCache) {
+            List<Class<?>> eventTypes = eventTypesCache.get(eventClass);
+            if (eventTypes == null) {
+                eventTypes = new ArrayList<>();
+                Class<?> clazz = eventClass;
+                while (clazz != null) {
+                    eventTypes.add(clazz);
+                    addInterfaces(eventTypes, clazz.getInterfaces());
+                    clazz = clazz.getSuperclass();
+                }
+                eventTypesCache.put(eventClass, eventTypes);
+            }
+            return eventTypes;
+        }
+    }
+
+    /** 递归获取指定接口的所有父类接口. */
+    private static void addInterfaces(List<Class<?>> eventTypes, Class<?>[] interfaces) {
+        for (Class<?> interfaceClass : interfaces) {
+            if (!eventTypes.contains(interfaceClass)) {
+                eventTypes.add(interfaceClass);
+                addInterfaces(eventTypes, interfaceClass.getInterfaces());
+            }
         }
     }
 
@@ -275,6 +303,7 @@ public class EventBus {
                                                 Class<?> eventClass) {
         CopyOnWriteArrayList<Subscription> subscriptions;
         synchronized (this) {
+            // 获取订阅事件类类型对应的订阅者信息集合.(register函数时构造的集合)
             subscriptions = subscriptionsByEventType.get(eventClass);
         }
 
@@ -284,6 +313,7 @@ public class EventBus {
                 postingState.subscription = subscription;
                 boolean aborted = false;
                 try {
+                    // 发布订阅事件给订阅函数
                     postToSubscription(subscription, event, postingState.isMainThread);
                     aborted = postingState.canceled;
                 } finally {
@@ -298,6 +328,30 @@ public class EventBus {
             return true;
         }
         return false;
+    }
+
+    /**
+     * Invokes the subscriber if the subscriptions is still active.
+     * @param pendingPost
+     */
+    void invokeSubscriber(PendingPost pendingPost) {
+        Object event = pendingPost.event;
+        Subscription subscription = pendingPost.subscription;
+        PendingPost.releasePendingPost(pendingPost);
+        if (subscription.active) {
+            invokeSubscriber(subscription, event);
+        }
+    }
+
+    /** 通过反射来执行订阅函数. */
+    void invokeSubscriber(Subscription subscription, Object event) {
+        try {
+            subscription.subscriberMethod.method.invoke(subscription.subscriber, event);
+        } catch (InvocationTargetException e) {
+            e.printStackTrace();
+        } catch (IllegalAccessException e) {
+            throw new IllegalStateException("Unexpected exception", e);
+        }
     }
 
     private void postToSubscription(Subscription subscription, Object event, boolean isMainThread) {

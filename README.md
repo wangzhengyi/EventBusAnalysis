@@ -843,3 +843,170 @@ EventBus的单例中已经存储了订阅事件-订阅者信息集合的映射�
 知道了上述原理,我们先来看一下post方法的具体实现.
 
 ### post()方法
+
+post()中文注释源码如下:
+```java
+/** 事件分发. */
+public void post(Object event) {
+    // 获取当前线程的Posting状态.
+    PostingThreadState postingState = currentPostingThreadState.get();
+    // 获取当前线程的事件队列.
+    List<Object> eventQueue = postingState.eventQueue;
+    eventQueue.add(event);
+
+    if (!postingState.isPosting) {
+        postingState.isMainThread = Looper.getMainLooper() == Looper.myLooper();
+        postingState.isPosting = true;
+        if (postingState.canceled) {
+            throw new EventBusException("Internal error. Abort state was not reset");
+        }
+        try {
+            // 循环处理当前线程eventQueue中的每一个event对象.
+            while (!eventQueue.isEmpty()) {
+                postSingleEvent(eventQueue.remove(0), postingState);
+            }
+        } finally {
+            // 处理完知乎重置postingState一些标识信息.
+            postingState.isPosting = false;
+            postingState.isMainThread = false;
+        }
+    }
+}
+```
+
+post()方法首先从currentPostingThreadState对象中获取当前线程的PostingThreadState对象.为什么说是当前线程的PostingThreadState对象呢,这就需要看一下currentPostingThreadState对象的构造函数了.
+```java
+/** 存储当前线程的PostingThreadState对象. */
+private final ThreadLocal<PostingThreadState> currentPostingThreadState =
+        new ThreadLocal<PostingThreadState>() {
+    @Override
+    protected PostingThreadState initialValue() {
+        return new PostingThreadState();
+    }
+};
+```
+可以看到,currentPostingThreadState是通过ThreadLocal来实现对PostingThreadState对象的存储.ThreadLocal是一个线程内部的数据存储类,通过它可以在指定的线程中存储数据,而这段数据是不会与其他线程共享的.
+ThreadLocal的内部原理是:通过生成一个包裹的泛型对象的数组,在不同的线程会有不同的数组索引值.通过这样就可以做到每个线程通过get()方法获取的时候,取到的是自己线程对应的数据.
+
+PostingThreadState类的定义如下:
+```java
+/** 当前线程的事件分发类. */
+final static class PostingThreadState {
+    /** 当前线程的发布事件队列. */
+    final List<Object> eventQueue = new ArrayList<>();
+
+    /** 当前线程是否处于发送事件的过程中. */
+    boolean isPosting;
+
+    /** 当前线程是否是主线程. */
+    boolean isMainThread;
+
+    /** 处理当前分发的订阅事件的订阅者. */
+    Subscription subscription;
+
+    /** 当前准备分发的订阅事件. */
+    Object event;
+
+    /** 当前线程分发是否被取消. */
+    boolean canceled;
+}
+```
+
+回到Post方法,Post方法取出当前线程的PostingThreadState对象之后,将需要入队的Event事件入队,然后调用了postSingleEvent方法.接下来,我们去看一下这个方法的具体实现.
+
+### postSingleEvent()方法
+
+postSingleEvent的中文注释源码如下:
+```java
+private void postSingleEvent(Object event, PostingThreadState postingState) {
+    Class<?> eventClass = event.getClass();
+    boolean subscriptionFound = false;
+    if (eventInheritance) {
+        List<Class<?>> eventTypes = lookupAllEventTypes(eventClass);
+        int countTypes = eventTypes.size();
+        for (int h = 0; h < countTypes; h ++) {
+            Class<?> clazz = eventTypes.get(h);
+            subscriptionFound |= postSingleEventForEventType(event, postingState, clazz);
+        }
+    } else {
+        subscriptionFound = postSingleEventForEventType(event, postingState, eventClass);
+    }
+
+    if (!subscriptionFound) {
+        if (logNoSubscriberMessages) {
+            Log.d("EventBus", "No subscribers registered for event " + eventClass);
+        }
+        if (sendNoSubscriberEvent && eventClass != NoSubscriberEvent.class &&
+                eventClass != SubscriberExceptionEvent.class) {
+            post(new NoSubscriberEvent(this, event));
+        }
+    }
+}
+
+/** 找出当前订阅事件类类型eventClass的所有父类的类类型和其实现的接口的类类型. */
+private static List<Class<?>> lookupAllEventTypes(Class<?> eventClass) {
+    synchronized (eventTypesCache) {
+        List<Class<?>> eventTypes = eventTypesCache.get(eventClass);
+        if (eventTypes == null) {
+            eventTypes = new ArrayList<>();
+            Class<?> clazz = eventClass;
+            while (clazz != null) {
+                eventTypes.add(clazz);
+                addInterfaces(eventTypes, clazz.getInterfaces());
+                clazz = clazz.getSuperclass();
+            }
+            eventTypesCache.put(eventClass, eventTypes);
+        }
+        return eventTypes;
+    }
+}
+
+/** 递归获取指定接口的所有父类接口. */
+private static void addInterfaces(List<Class<?>> eventTypes, Class<?>[] interfaces) {
+    for (Class<?> interfaceClass : interfaces) {
+        if (!eventTypes.contains(interfaceClass)) {
+            eventTypes.add(interfaceClass);
+            addInterfaces(eventTypes, interfaceClass.getInterfaces());
+        }
+    }
+}
+```
+
+从源码中可以看出,postSingleEvent方法主要是调用了postSingleEventForEventType来对订阅事件进行分发.区别是,当EventBus的eventInheritance成员属性为true时,订阅了当前事件父类事件或者实现接口的事件的订阅函数也会响应这个订阅事件.
+
+### postSingleEventForEventType()方法
+
+postSingleEventForEventType()中文注释源码如下:
+```java
+private boolean postSingleEventForEventType(Object event, PostingThreadState postingState,
+                                            Class<?> eventClass) {
+    CopyOnWriteArrayList<Subscription> subscriptions;
+    synchronized (this) {
+        // 获取订阅事件类类型对应的订阅者信息集合.(register函数时构造的集合)
+        subscriptions = subscriptionsByEventType.get(eventClass);
+    }
+
+    if (subscriptions != null && !subscriptions.isEmpty()) {
+        for (Subscription subscription : subscriptions) {
+            postingState.event = event;
+            postingState.subscription = subscription;
+            boolean aborted = false;
+            try {
+                // 发布订阅事件给订阅函数
+                postToSubscription(subscription, event, postingState.isMainThread);
+                aborted = postingState.canceled;
+            } finally {
+                postingState.event = null;
+                postingState.subscription = null;
+                postingState.canceled = false;
+            }
+            if (aborted) {
+                break;
+            }
+        }
+        return true;
+    }
+    return false;
+}
+```
+
