@@ -1010,3 +1010,232 @@ private boolean postSingleEventForEventType(Object event, PostingThreadState pos
 }
 ```
 
+从源码中可以看出,postSingleEventForEventType的作用是:找出所有订阅event事件的订阅函数集合,然后调用postToSubscription方法进行事件分发.
+
+### postToSubscription()方法
+
+postToSubscription()方法注释源码如下:
+```java
+private void postToSubscription(Subscription subscription, Object event, boolean isMainThread) {
+    switch (subscription.subscriberMethod.threadMode) {
+        case POSTING:
+            invokeSubscriber(subscription, event);
+            break;
+        case MAIN:
+            if (isMainThread) {
+                invokeSubscriber(subscription, event);
+            } else {
+                mainThreadPoster.enqueue(subscription, event);
+            }
+            break;
+        case BACKGROUND:
+            if (isMainThread) {
+                backgroundPoster.enqueue(subscription, event);
+            } else {
+                invokeSubscriber(subscription, event);
+            }
+            break;
+        case ASYNC:
+            asyncPoster.enqueue(subscription, event);
+            break;
+        default:
+            throw new IllegalStateException("Unknown thread mode: " +
+                    subscription.subscriberMethod.threadMode);
+    }
+}
+```
+从源码中可以看出,postToSubscription方法主要是根据订阅方法指定的ThreadMode进行相应的处理.
+虽然ThreadMode的具体含义已经在上面的博文中介绍过了,但是这里还是要结合代码讲一下实现原理.
+
+#### POSTING
+
+POSTING的含义是订阅函数可以直接运行在发送当前Event事件的线程中.而post方法又是发布订阅事件线程调用的,所以直接执行订阅方法即可.EventBus中订阅方法的执行是通过反射机制.
+```java
+/** 通过反射来执行订阅函数. */
+void invokeSubscriber(Subscription subscription, Object event) {
+    try {
+        subscription.subscriberMethod.method.invoke(subscription.subscriber, event);
+    } catch (InvocationTargetException e) {
+        e.printStackTrace();
+    } catch (IllegalAccessException e) {
+        throw new IllegalStateException("Unexpected exception", e);
+    }
+}
+```
+
+#### MAIN
+
+MAIN的含义表示订阅函数需要运行在主线程中,例如一些UI的操作.
+如何判断当前发布订阅事件的线程是否为UI线程,可以通过如下方法:
+```java
+Looper.getMainLooper() == Looper.myLooper();
+```
+所以,如果当前发布订阅事件的线程是UI线程,则直接反射调用订阅函数即可.如果不是,则通过mainThreadPoster来执行.
+```java
+public class HandlerPoster extends Handler {
+
+    private final PendingPostQueue queue;
+    private final int maxMillisInsideHandleMessage;
+    private final EventBus eventBus;
+    /** 用于表示当前队列中是否有正在发送的任务. */
+    private boolean handlerActive;
+
+    HandlerPoster(EventBus eventBus, Looper looper, int maxMillisInsideHandleMessage) {
+        super(looper);
+        this.eventBus = eventBus;
+        this.maxMillisInsideHandleMessage = maxMillisInsideHandleMessage;
+        queue = new PendingPostQueue();
+    }
+
+    /**
+     * 将订阅者和订阅者事件组成PendingPost并入队列.
+     * @param subscription 订阅者
+     * @param event 订阅者事件
+     */
+    void enqueue(Subscription subscription, Object event) {
+        PendingPost pendingPost = PendingPost.obtainPendingPost(subscription, event);
+        synchronized (this) {
+            queue.enqueue(pendingPost);
+            if (!handlerActive) {
+                // 如果现在队列中没有正在执行的消息,则发送一条空消息,让当前handler开始轮询执行消息.
+                handlerActive = true;
+                if (!sendMessage(obtainMessage())) {
+                    throw new EventBusException("Could not send handler message");
+                }
+            }
+        }
+    }
+
+    @Override
+    public void handleMessage(Message msg) {
+        boolean rescheduled = false;
+        try {
+            long started = SystemClock.uptimeMillis();
+            while (true) {
+                PendingPost pendingPost = queue.poll();
+                if (pendingPost == null) {
+                    synchronized (this) {
+                        pendingPost = queue.poll();
+                        if (pendingPost == null) {
+                            handlerActive = false;
+                            return;
+                        }
+                    }
+                }
+                eventBus.invokeSubscriber(pendingPost);
+
+                // 如果在规定的时间内没有发送完队列中的所有请求,则先退出当前循环,让出cpu,
+                // 同时发送消息再次调度handleMessage方法.
+                long timeInMethod = SystemClock.uptimeMillis() - started;
+                if (timeInMethod >= maxMillisInsideHandleMessage) {
+                    if (!sendMessage(obtainMessage())) {
+                        throw new EventBusException("Could not send handler message");
+                    }
+                    rescheduled = true;
+                    return;
+                }
+            }
+        } finally {
+            handlerActive = rescheduled;
+        }
+    }
+}
+```
+mainThreadPoster是HandlerPoster的实例,HandlerPoster关联了主线程的Looper,因此通过handleMessage方法通过反射调用订阅函数将订阅函数在主线程中执行.
+
+#### BACKGROUND
+
+BACKGROUND的意思是订阅函数必须运行在子线程中,而且是顺序执行.这个实现很简单,通过队列机制+线程池就可以实现该功能.
+```java
+/**
+ * 后台通过线程池去执行事件响应回调.
+ */
+final class BackgroundPoster implements Runnable{
+    private final PendingPostQueue queue;
+    private final EventBus eventBus;
+
+    private volatile boolean executorRunning;
+
+    BackgroundPoster(EventBus eventBus) {
+        this.eventBus = eventBus;
+        queue = new PendingPostQueue();
+    }
+
+    public void enqueue(Subscription subscription, Object event) {
+        PendingPost pendingPost = PendingPost.obtainPendingPost(subscription, event);
+        synchronized (this) {
+            queue.enqueue(pendingPost);
+            if (!executorRunning) {
+                executorRunning = true;
+                eventBus.getExecutorService().execute(this);
+            }
+        }
+    }
+
+    @Override
+    public void run() {
+        try {
+            try {
+                while (true) {
+                    PendingPost pendingPost = queue.poll(1000);
+                    if (pendingPost == null) {
+                        synchronized (this) {
+                            pendingPost = queue.poll();
+                            if (pendingPost == null) {
+                                executorRunning = false;
+                                return;
+                            }
+                        }
+                    }
+                    eventBus.invokeSubscriber(pendingPost);
+                }
+            } catch (InterruptedException e) {
+                Log.e("EventBus", Thread.currentThread().getName() + " was interruppted", e);
+            }
+        }finally {
+            executorRunning = false;
+        }
+    }
+}
+```
+
+#### ASYNC
+
+ASYNC意思是订阅函数运行在子线程中,而且可以并发执行.这个实现就更简单了,直接线程池+Runnable即可.EventBus具体实现如下:
+```java
+/**
+ * 将订阅事件在后台响应执行,并且执行顺序是并发执行.
+ */
+class AsyncPoster implements Runnable{
+    private final PendingPostQueue queue;
+    private final EventBus eventBus;
+
+    AsyncPoster(EventBus eventBus) {
+        this.eventBus = eventBus;
+        queue = new PendingPostQueue();
+    }
+
+    public void enqueue(Subscription subscription, Object event) {
+        PendingPost pendingPost = PendingPost.obtainPendingPost(subscription, event);
+        queue.enqueue(pendingPost);
+        eventBus.getExecutorService().execute(this);
+    }
+
+    @Override
+    public void run() {
+        PendingPost pendingPost = queue.poll();
+        if (pendingPost == null) {
+            throw new IllegalStateException("No pending post available");
+        }
+        eventBus.invokeSubscriber(pendingPost);
+    }
+}
+```
+
+### post流程图
+
+接下来,我们总结一下post的流程图.
+
+![post](https://github.com/wangzhengyi/EventBusAnalysis/raw/master/picture/post.png)
+
+
