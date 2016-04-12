@@ -1239,3 +1239,7 @@ class AsyncPoster implements Runnable{
 ![post](https://github.com/wangzhengyi/EventBusAnalysis/raw/master/picture/post.png)
 
 
+# 总结
+
+经过上述EventBus的源码分析,我们应该了解到EventBus通过反射机制实现了订阅者和发布者的解耦和订阅发布功能.与传统的观察者模型相比,不需要写冗余的interface接口,而且支持自定义要执行的线程,感觉还是很不错的.
+

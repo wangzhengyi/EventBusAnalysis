@@ -8,7 +8,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -107,11 +106,7 @@ public class EventBus {
     }
 
     private void handleSubscriberException(Subscription subscription, Object event, Throwable cause) {
-        if (event instanceof  SubscriberExceptionEvent) {
-
-        } else {
-
-        }
+        // do nothing
     }
 
     /** 订阅事件. */
@@ -332,7 +327,6 @@ public class EventBus {
 
     /**
      * Invokes the subscriber if the subscriptions is still active.
-     * @param pendingPost
      */
     void invokeSubscriber(PendingPost pendingPost) {
         Object event = pendingPost.event;
